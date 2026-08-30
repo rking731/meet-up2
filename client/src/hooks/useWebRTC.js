@@ -21,8 +21,8 @@ const getEnhancedAudioConstraints = () => ({
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [localStream, setLocalStream] = useState(null);
     const [remoteUsers, setRemoteUsers] = useState([]); // Array of { socketId, userId, userName, stream, audioEnabled, videoEnabled }
-    const [audioEnabled, setAudioEnabled] = useState(false);
-    const [videoEnabled, setVideoEnabled] = useState(false);
+    const [audioEnabled, setAudioEnabled] = useState(true);
+    const [videoEnabled, setVideoEnabled] = useState(true);
 
     const peersRef = useRef(new Map()); // socketId -> RTCPeerConnection
     const localStreamRef = useRef(null);
@@ -42,12 +42,19 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) {
-                audioTrack.enabled = false;
+                audioTrack.enabled = true;
                 audioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
+            }
+
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = true;
             }
 
             localStreamRef.current = stream;
             setLocalStream(stream);
+            setAudioEnabled(true);
+            setVideoEnabled(true);
             return stream;
         } catch (error) {
             toast.error("Could not access camera/microphone");
@@ -59,12 +66,13 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
                 const fallbackAudioTrack = audioStream.getAudioTracks()[0];
                 if (fallbackAudioTrack) {
-                    fallbackAudioTrack.enabled = false;
+                    fallbackAudioTrack.enabled = true;
                     fallbackAudioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
                 }
 
                 localStreamRef.current = audioStream;
                 setLocalStream(audioStream);
+                setAudioEnabled(true);
                 setVideoEnabled(false);
                 return audioStream;
             } catch (err) {
@@ -157,8 +165,8 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             socket.emit("join-room", {
                 roomId,
                 user,
-                audioEnabled: false,
-                videoEnabled: false,
+                audioEnabled: true,
+                videoEnabled: true,
             });
 
             // 1. Receive all existing users in room
