@@ -2,39 +2,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { socket } from "../config/socket";
 import toast from "react-hot-toast";
 
-const TURN_URL = import.meta.env.VITE_TURN_URL;
-const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME;
-const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL;
-
 const ICE_SERVERS = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    ...(TURN_URL
-      ? [{
-          urls: TURN_URL,
-          username: TURN_USERNAME || "",
-          credential: TURN_CREDENTIAL || "",
-        }]
-      : []),
-  ],
-  iceCandidatePoolSize: 10,
+    iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+    ],
 };
-
-const getEnhancedAudioConstraints = () => ({
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    suppressLocalAudioPlayback: true,
-    channelCount: 1,
-});
 
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [localStream, setLocalStream] = useState(null);
     const [remoteUsers, setRemoteUsers] = useState([]); // Array of { socketId, userId, userName, stream, audioEnabled, videoEnabled }
-    const [audioEnabled, setAudioEnabled] = useState(true);
-    const [videoEnabled, setVideoEnabled] = useState(true);
+    const [audioEnabled, setAudioEnabled] = useState(false);
+    const [videoEnabled, setVideoEnabled] = useState(false);
 
     const peersRef = useRef(new Map()); // socketId -> RTCPeerConnection
     const localStreamRef = useRef(null);
@@ -49,42 +29,45 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
                     height: { ideal: 720 },
                     frameRate: { ideal: 24 },
                 },
-                audio: getEnhancedAudioConstraints(),
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    suppressLocalAudioPlayback: true,
+                    channelCount: 1,
+                },
             });
 
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) {
-                audioTrack.enabled = true;
-                audioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
-            }
-
-            const videoTrack = stream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = true;
+                audioTrack.enabled = false;
             }
 
             localStreamRef.current = stream;
             setLocalStream(stream);
-            setAudioEnabled(true);
-            setVideoEnabled(true);
             return stream;
         } catch (error) {
             toast.error("Could not access camera/microphone");
             console.error("Media devices access error:", error);
+            // Fallback: try audio only
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: getEnhancedAudioConstraints(),
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        suppressLocalAudioPlayback: true,
+                        channelCount: 1,
+                    },
                 });
 
                 const fallbackAudioTrack = audioStream.getAudioTracks()[0];
                 if (fallbackAudioTrack) {
-                    fallbackAudioTrack.enabled = true;
-                    fallbackAudioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
+                    fallbackAudioTrack.enabled = false;
                 }
 
                 localStreamRef.current = audioStream;
                 setLocalStream(audioStream);
-                setAudioEnabled(true);
                 setVideoEnabled(false);
                 return audioStream;
             } catch (err) {
@@ -102,12 +85,14 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
         const peer = new RTCPeerConnection(ICE_SERVERS);
 
+        // Add local tracks to peer connection
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach((track) => {
                 peer.addTrack(track, localStreamRef.current);
             });
         }
 
+        // Handle ICE candidates
         peer.onicecandidate = (event) => {
             if (event.candidate) {
                 socket.emit("ice-candidate", {
@@ -118,42 +103,31 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             }
         };
 
-        peer.onconnectionstatechange = () => {
-            console.log("Peer connection state:", targetSocketId, peer.connectionState);
-        };
-
-        peer.oniceconnectionstatechange = () => {
-            console.log("ICE state:", targetSocketId, peer.iceConnectionState);
-        };
-
+        // Handle incoming remote stream tracks
         peer.ontrack = (event) => {
-            const remoteStream = event.streams?.[0] || new MediaStream();
-            if (event.track) {
-                remoteStream.addTrack(event.track);
-            }
-
+            const remoteStream = event.streams[0];
             setRemoteUsers((prev) => {
                 const existingIndex = prev.findIndex((u) => u.socketId === targetSocketId);
-                const userInfo = {
-                    socketId: targetSocketId,
-                    userId: targetUser?.userId,
-                    userName: targetUser?.userName || "Participant",
-                    stream: remoteStream,
-                    audioEnabled: targetUser?.audioEnabled ?? true,
-                    videoEnabled: targetUser?.videoEnabled ?? true,
-                };
-
                 if (existingIndex > -1) {
                     const updated = [...prev];
                     updated[existingIndex] = {
                         ...updated[existingIndex],
-                        ...userInfo,
                         stream: remoteStream,
                     };
                     return updated;
+                } else {
+                    return [
+                        ...prev,
+                        {
+                            socketId: targetSocketId,
+                            userId: targetUser?.userId,
+                            userName: targetUser?.userName || "Participant",
+                            stream: remoteStream,
+                            audioEnabled: targetUser?.audioEnabled ?? true,
+                            videoEnabled: targetUser?.videoEnabled ?? true,
+                        },
+                    ];
                 }
-
-                return [...prev, userInfo];
             });
         };
 
@@ -178,59 +152,41 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
             if (!isMounted) return;
 
-            const joinMeeting = () => {
-                socket.emit("join-room", {
-                    roomId,
-                    user,
-                    audioEnabled: true,
-                    videoEnabled: true,
-                });
-            };
-
-            socket.on("connect", joinMeeting);
-
             if (!socket.connected) {
                 socket.connect();
-            } else {
-                joinMeeting();
             }
+
+            // Emit join room
+            socket.emit("join-room", {
+                roomId,
+                user,
+                audioEnabled: false,
+                videoEnabled: false,
+            });
 
             // 1. Receive all existing users in room
             socket.on("all-users", (existingUsers) => {
-                existingUsers
-                    .filter((existingUser) => existingUser.socketId !== socket.id)
-                    .forEach((existingUser) => {
-                        const peer = createPeerConnection(existingUser.socketId, existingUser);
+                existingUsers.forEach((existingUser) => {
+                    const peer = createPeerConnection(existingUser.socketId, existingUser);
 
-                        peer.createOffer()
-                            .then((offer) => peer.setLocalDescription(offer))
-                            .then(() => {
-                                socket.emit("offer", {
-                                    targetSocketId: existingUser.socketId,
-                                    callerSocketId: socket.id,
-                                    sdp: peer.localDescription,
-                                });
-                            })
-                            .catch((err) => console.error("Error creating offer:", err));
-                    });
+                    // Create offer to existing user
+                    peer.createOffer()
+                        .then((offer) => peer.setLocalDescription(offer))
+                        .then(() => {
+                            socket.emit("offer", {
+                                targetSocketId: existingUser.socketId,
+                                callerSocketId: socket.id,
+                                sdp: peer.localDescription,
+                            });
+                        })
+                        .catch((err) => console.error("Error creating offer:", err));
+                });
             });
 
             // 2. Someone new joined -> add to state
             socket.on("user-joined", (newUser) => {
                 toast(`${newUser.userName} joined the meeting`, { icon: "👋" });
-                const peer = createPeerConnection(newUser.socketId, newUser);
-                if (peer && peer.signalingState === "stable") {
-                    peer.createOffer()
-                        .then((offer) => peer.setLocalDescription(offer))
-                        .then(() => {
-                            socket.emit("offer", {
-                                targetSocketId: newUser.socketId,
-                                callerSocketId: socket.id,
-                                sdp: peer.localDescription,
-                            });
-                        })
-                        .catch((err) => console.error("Error creating offer for newly joined user:", err));
-                }
+                createPeerConnection(newUser.socketId, newUser);
             });
 
             // 3. Receive offer from caller

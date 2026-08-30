@@ -31,8 +31,7 @@ export function setupSocketIO(io){
             currentUser = {
                 socketId: socket.id,
                 userId: user?.id,
-                userName: user?.name || user?.fullName || user?.email?.split("@")[0] || "Anonymous",
-                userEmail: user?.email || null,
+                userName: user?.name || "Anonymous",
                 isHost, audioEnabled, videoEnabled,
             }
 
