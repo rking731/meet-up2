@@ -2,21 +2,22 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { socket } from "../config/socket";
 import toast from "react-hot-toast";
 
+const TURN_URL = import.meta.env.VITE_TURN_URL;
+const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME;
+const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL;
+
 const ICE_SERVERS = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
+    ...(TURN_URL
+      ? [{
+          urls: TURN_URL,
+          username: TURN_USERNAME || "",
+          credential: TURN_CREDENTIAL || "",
+        }]
+      : []),
   ],
   iceCandidatePoolSize: 10,
 };
@@ -101,14 +102,12 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
         const peer = new RTCPeerConnection(ICE_SERVERS);
 
-        // Add local tracks to peer connection
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach((track) => {
                 peer.addTrack(track, localStreamRef.current);
             });
         }
 
-        // Handle ICE candidates
         peer.onicecandidate = (event) => {
             if (event.candidate) {
                 socket.emit("ice-candidate", {
@@ -119,31 +118,42 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             }
         };
 
-        // Handle incoming remote stream tracks
+        peer.onconnectionstatechange = () => {
+            console.log("Peer connection state:", targetSocketId, peer.connectionState);
+        };
+
+        peer.oniceconnectionstatechange = () => {
+            console.log("ICE state:", targetSocketId, peer.iceConnectionState);
+        };
+
         peer.ontrack = (event) => {
-            const remoteStream = event.streams[0];
+            const remoteStream = event.streams?.[0] || new MediaStream();
+            if (event.track) {
+                remoteStream.addTrack(event.track);
+            }
+
             setRemoteUsers((prev) => {
                 const existingIndex = prev.findIndex((u) => u.socketId === targetSocketId);
+                const userInfo = {
+                    socketId: targetSocketId,
+                    userId: targetUser?.userId,
+                    userName: targetUser?.userName || "Participant",
+                    stream: remoteStream,
+                    audioEnabled: targetUser?.audioEnabled ?? true,
+                    videoEnabled: targetUser?.videoEnabled ?? true,
+                };
+
                 if (existingIndex > -1) {
                     const updated = [...prev];
                     updated[existingIndex] = {
                         ...updated[existingIndex],
+                        ...userInfo,
                         stream: remoteStream,
                     };
                     return updated;
-                } else {
-                    return [
-                        ...prev,
-                        {
-                            socketId: targetSocketId,
-                            userId: targetUser?.userId,
-                            userName: targetUser?.userName || "Participant",
-                            stream: remoteStream,
-                            audioEnabled: targetUser?.audioEnabled ?? true,
-                            videoEnabled: targetUser?.videoEnabled ?? true,
-                        },
-                    ];
                 }
+
+                return [...prev, userInfo];
             });
         };
 
@@ -168,17 +178,22 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
             if (!isMounted) return;
 
+            const joinMeeting = () => {
+                socket.emit("join-room", {
+                    roomId,
+                    user,
+                    audioEnabled: true,
+                    videoEnabled: true,
+                });
+            };
+
+            socket.on("connect", joinMeeting);
+
             if (!socket.connected) {
                 socket.connect();
+            } else {
+                joinMeeting();
             }
-
-            // Emit join room
-            socket.emit("join-room", {
-                roomId,
-                user,
-                audioEnabled: true,
-                videoEnabled: true,
-            });
 
             // 1. Receive all existing users in room
             socket.on("all-users", (existingUsers) => {
