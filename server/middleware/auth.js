@@ -10,9 +10,15 @@ export const protect = async (req, res, next) => {
     }
 
     const claims = auth?.sessionClaims || req.auth?.sessionClaims || {};
-    const fallbackUserName = claims.full_name || claims.name || "User";
-    const fallbackEmail = claims.email || `${userId}@clerk.local`;
-    const fallbackImage = claims.image || "";
+    const fallbackUserName = [
+        claims.full_name,
+        claims.name,
+        claims.first_name && claims.last_name ? `${claims.first_name} ${claims.last_name}` : claims.first_name || claims.last_name,
+        claims.given_name && claims.family_name ? `${claims.given_name} ${claims.family_name}` : claims.given_name || claims.family_name,
+        "User"
+    ].find(Boolean) || "User";
+    const fallbackEmail = claims.email || claims.primary_email || claims.email_address || `${userId}@clerk.local`;
+    const fallbackImage = claims.image || claims.picture || "";
 
     await sql`
         INSERT INTO users (id, name, email, image, plan)
@@ -25,14 +31,14 @@ export const protect = async (req, res, next) => {
     `;
 
     const userActivePlan = typeof auth?.has === "function" && auth.has({ plan: "premium" }) ? "premium" : "free";
-    const users = await sql`SELECT name, plan FROM users WHERE id = ${userId}`;
+    const users = await sql`SELECT name, email, plan FROM users WHERE id = ${userId}`;
     const user = users[0];
 
     if (!user) {
         return res.status(500).json({ error: "User profile could not be loaded." });
     }
 
-    req.user = { id: userId };
+    req.user = { id: userId, name: user?.name || fallbackUserName, email: user?.email || fallbackEmail };
 
     if (userActivePlan !== user.plan) {
         await sql`UPDATE users SET plan = ${userActivePlan} WHERE id = ${userId}`;

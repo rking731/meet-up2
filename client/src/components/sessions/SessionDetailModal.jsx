@@ -25,7 +25,7 @@ const SessionDetailModal = ({session, onClose}) => {
             </div>
             <h2 className='text-2xl font-medium text-slate-900 mt-1'>{session.title || "Meeting Details"}</h2>
             <p className='text-xs text-slate-400 mt-1'>
-                Host: {session.host?.name || "Host"} 💠 Created {new Date(session.createdAt).toLocaleString()}
+                Host: {session.host?.name || "Host"}{session.host?.email ? ` (${session.host.email})` : ""} 💠 Created {new Date(session.createdAt).toLocaleString()}
             </p>
           </div>
           <button onClick={onClose} className='p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer' aria-label='Close session details'>

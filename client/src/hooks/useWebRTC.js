@@ -11,67 +11,12 @@ const ICE_SERVERS = {
 };
 
 const getEnhancedAudioConstraints = () => ({
-    echoCancellation: { ideal: true },
-    noiseSuppression: { ideal: true },
-    autoGainControl: { ideal: true },
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
     suppressLocalAudioPlayback: true,
     channelCount: 1,
-    latency: { ideal: 0.02, max: 0.08 },
-    sampleRate: { ideal: 48000 },
 });
-
-const createVoiceFocusedStream = async (stream) => {
-    if (!stream || !stream.getAudioTracks().length) return stream;
-
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return stream;
-
-    try {
-        const audioContext = new AudioContextClass();
-        const source = audioContext.createMediaStreamSource(stream);
-
-        const highPassFilter = audioContext.createBiquadFilter();
-        highPassFilter.type = "highpass";
-        highPassFilter.frequency.value = 80;
-        highPassFilter.Q.value = 0.8;
-
-        const lowPassFilter = audioContext.createBiquadFilter();
-        lowPassFilter.type = "lowpass";
-        lowPassFilter.frequency.value = 4200;
-        lowPassFilter.Q.value = 0.8;
-
-        const compressor = audioContext.createDynamicsCompressor();
-        compressor.threshold.value = -28;
-        compressor.knee.value = 20;
-        compressor.ratio.value = 6;
-        compressor.attack.value = 0.02;
-        compressor.release.value = 0.2;
-
-        const gainNode = audioContext.createGain();
-        gainNode.gain.value = 1.1;
-
-        const destination = audioContext.createMediaStreamDestination();
-
-        source.connect(highPassFilter);
-        highPassFilter.connect(lowPassFilter);
-        lowPassFilter.connect(compressor);
-        compressor.connect(gainNode);
-        gainNode.connect(destination);
-
-        await audioContext.resume();
-
-        const processedAudioTracks = destination.stream.getAudioTracks();
-        if (!processedAudioTracks.length) return stream;
-
-        return new MediaStream([
-            ...stream.getVideoTracks(),
-            ...processedAudioTracks,
-        ]);
-    } catch (error) {
-        console.warn("Voice processing unavailable; using browser default microphone cleanup:", error);
-        return stream;
-    }
-};
 
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [localStream, setLocalStream] = useState(null);
@@ -95,36 +40,33 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
                 audio: getEnhancedAudioConstraints(),
             });
 
-            const processedStream = await createVoiceFocusedStream(stream);
-            const audioTrack = processedStream.getAudioTracks()[0];
+            const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = false;
                 audioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
             }
 
-            localStreamRef.current = processedStream;
-            setLocalStream(processedStream);
-            return processedStream;
+            localStreamRef.current = stream;
+            setLocalStream(stream);
+            return stream;
         } catch (error) {
             toast.error("Could not access camera/microphone");
             console.error("Media devices access error:", error);
-            // Fallback: try audio only
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
                     audio: getEnhancedAudioConstraints(),
                 });
 
-                const processedAudioStream = await createVoiceFocusedStream(audioStream);
-                const fallbackAudioTrack = processedAudioStream.getAudioTracks()[0];
+                const fallbackAudioTrack = audioStream.getAudioTracks()[0];
                 if (fallbackAudioTrack) {
                     fallbackAudioTrack.enabled = false;
                     fallbackAudioTrack.applyConstraints(getEnhancedAudioConstraints()).catch(() => {});
                 }
 
-                localStreamRef.current = processedAudioStream;
-                setLocalStream(processedAudioStream);
+                localStreamRef.current = audioStream;
+                setLocalStream(audioStream);
                 setVideoEnabled(false);
-                return processedAudioStream;
+                return audioStream;
             } catch (err) {
                 console.error("Audio-only fallback error:", err);
                 return null;
@@ -221,27 +163,40 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
             // 1. Receive all existing users in room
             socket.on("all-users", (existingUsers) => {
-                existingUsers.forEach((existingUser) => {
-                    const peer = createPeerConnection(existingUser.socketId, existingUser);
+                existingUsers
+                    .filter((existingUser) => existingUser.socketId !== socket.id)
+                    .forEach((existingUser) => {
+                        const peer = createPeerConnection(existingUser.socketId, existingUser);
 
-                    // Create offer to existing user
-                    peer.createOffer()
-                        .then((offer) => peer.setLocalDescription(offer))
-                        .then(() => {
-                            socket.emit("offer", {
-                                targetSocketId: existingUser.socketId,
-                                callerSocketId: socket.id,
-                                sdp: peer.localDescription,
-                            });
-                        })
-                        .catch((err) => console.error("Error creating offer:", err));
-                });
+                        peer.createOffer()
+                            .then((offer) => peer.setLocalDescription(offer))
+                            .then(() => {
+                                socket.emit("offer", {
+                                    targetSocketId: existingUser.socketId,
+                                    callerSocketId: socket.id,
+                                    sdp: peer.localDescription,
+                                });
+                            })
+                            .catch((err) => console.error("Error creating offer:", err));
+                    });
             });
 
             // 2. Someone new joined -> add to state
             socket.on("user-joined", (newUser) => {
                 toast(`${newUser.userName} joined the meeting`, { icon: "👋" });
-                createPeerConnection(newUser.socketId, newUser);
+                const peer = createPeerConnection(newUser.socketId, newUser);
+                if (peer && peer.signalingState === "stable") {
+                    peer.createOffer()
+                        .then((offer) => peer.setLocalDescription(offer))
+                        .then(() => {
+                            socket.emit("offer", {
+                                targetSocketId: newUser.socketId,
+                                callerSocketId: socket.id,
+                                sdp: peer.localDescription,
+                            });
+                        })
+                        .catch((err) => console.error("Error creating offer for newly joined user:", err));
+                }
             });
 
             // 3. Receive offer from caller
