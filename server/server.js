@@ -16,8 +16,30 @@ const server = http.createServer(app)
 // connect to neon
 await initDB()
 
-const allowedOrigins = process.env.ORIGINS.split(",") 
-app.use(cors({origin: allowedOrigins, credentials: true}))
+const allowedOrigins = (process.env.ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+
+        const isLocalhost = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        const isLanIp = /^(https?:\/\/)?\d+\.\d+\.\d+\.\d+(?:\:\d+)?$/.test(origin);
+
+        if (isLocalhost || isLanIp) {
+            return callback(null, true);
+        }
+
+        return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+};
+
+app.use(cors(corsOptions));
 
 app.use(cookieParser())
 
@@ -30,7 +52,7 @@ app.get("/", (req, res)=> res.send("API is Live!"))
 app.use("/api/meetings", meetingRouter)
 
 const io = new Server(server, {
-    cors: {origin: allowedOrigins, credentials: true}
+    cors: corsOptions,
 })
 
 app.locals.io = io;
