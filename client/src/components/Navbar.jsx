@@ -40,10 +40,6 @@ const Navbar = () => {
     {/* Right profile */}
     {isSignedIn && (
         <div className="flex items-center gap-4">
-          <Link to="/pricing" className="md:hidden inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-primary-hover transition-all">
-            <AstroidIcon className="w-3.5 h-3.5" />
-            Upgrade
-          </Link>
           <Link to="sessions" className="md:hidden text-xs font-medium text-slate-600 hover:text-primary flex items-center gap-1">
              <HistoryIcon className="w-4 h-4" />
              Sessions
