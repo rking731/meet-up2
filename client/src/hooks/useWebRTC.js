@@ -68,6 +68,49 @@ const requestMediaWithFallback = async (withVideo = true) => {
     throw lastError || new Error("Unable to access microphone/camera");
 };
 
+const openRecordingDB = () => new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+        reject(new Error("IndexedDB is not supported in this browser."));
+        return;
+    }
+
+    const request = window.indexedDB.open("meetup-recordings-db", 1);
+
+    request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains("recordings")) {
+            db.createObjectStore("recordings", { keyPath: "meetingId" });
+        }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open recording database."));
+});
+
+const saveRecordingToDB = async (meetingId, blob) => {
+    if (!meetingId || !blob) return null;
+
+    const db = await openRecordingDB();
+    const tx = db.transaction("recordings", "readwrite");
+    const store = tx.objectStore("recordings");
+
+    const record = {
+        meetingId,
+        name: `Meeting Recording - ${new Date().toLocaleString()}`,
+        createdAt: new Date().toISOString(),
+        type: blob.type || "video/webm",
+        blob,
+    };
+
+    await new Promise((resolve, reject) => {
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error || new Error("Could not store recording."));
+    });
+
+    return record;
+};
+
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [localStream, setLocalStream] = useState(null);
     const [remoteUsers, setRemoteUsers] = useState([]); // Array of { socketId, userId, userName, stream, audioEnabled, videoEnabled }
@@ -392,28 +435,30 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             }
         };
 
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
             const blob = new Blob(recordedChunksRef.current, {
                 type: recorder.mimeType || "video/webm",
             });
 
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const dataUrl = reader.result;
-                const recordings = JSON.parse(localStorage.getItem("meetup-recordings") || "{}");
-                recordings[roomId] = {
-                    meetingId: roomId,
-                    name: `Meeting Recording - ${new Date().toLocaleString()}`,
-                    createdAt: new Date().toISOString(),
-                    recordingUrl: dataUrl,
-                    type: blob.type || "video/webm",
-                };
+            if (!blob.size) {
+                toast.error("No recording data was captured.");
+                setIsRecording(false);
+                return;
+            }
 
-                localStorage.setItem("meetup-recordings", JSON.stringify(recordings));
-                setRecordingUrl(dataUrl);
-                toast.success("Meeting recording saved to this session");
-            };
-            reader.readAsDataURL(blob);
+            try {
+                const savedRecord = await saveRecordingToDB(roomId, blob);
+                if (savedRecord) {
+                    const objectUrl = URL.createObjectURL(blob);
+                    setRecordingUrl(objectUrl);
+                    toast.success("Meeting recording saved to this session");
+                }
+            } catch (error) {
+                console.error("Failed to save meeting recording:", error);
+                toast.error("Could not save the recording on this device.");
+            } finally {
+                setIsRecording(false);
+            }
         };
 
         recorder.start();

@@ -58,13 +58,46 @@ const Sessions = () => {
     };
   }, [isLoaded, isSignedIn]);
 
-  const getStoredRecording = (meetingId) => {
-    try {
-      const recordings = JSON.parse(localStorage.getItem("meetup-recordings") || "{}");
-      return recordings[meetingId] || null;
-    } catch (_error) {
-      return null;
-    }
+  const getStoredRecording = async (meetingId) => {
+    if (!("indexedDB" in window)) return null;
+
+    return new Promise((resolve) => {
+      const request = window.indexedDB.open("meetup-recordings-db", 1);
+
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains("recordings")) {
+          db.createObjectStore("recordings", { keyPath: "meetingId" });
+        }
+      };
+
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction("recordings", "readonly");
+        const store = tx.objectStore("recordings");
+        const getRequest = store.get(meetingId);
+
+        getRequest.onsuccess = () => {
+          const result = getRequest.result;
+          if (!result || !result.blob) {
+            resolve(null);
+            return;
+          }
+
+          resolve({
+            meetingId: result.meetingId,
+            name: result.name || "Meeting Recording",
+            createdAt: result.createdAt,
+            recordingUrl: URL.createObjectURL(result.blob),
+            type: result.type || "video/webm",
+          });
+        };
+
+        getRequest.onerror = () => resolve(null);
+      };
+
+      request.onerror = () => resolve(null);
+    });
   };
 
   const openSessionDetails = async (sessionId)=> {
@@ -74,8 +107,9 @@ const Sessions = () => {
           headers: {Authorization: `Bearer ${token}`},
         })
         const meeting = res.data.meeting || res.data.meetings || null;
+        const recording = meeting ? await getStoredRecording(sessionId) : null;
 
-        setSelectedSession(meeting ? { ...meeting, recording: getStoredRecording(sessionId) } : null);
+        setSelectedSession(meeting ? { ...meeting, recording } : null);
      } catch (_error) {
         toast.error("Could not fetch session details");
      }
