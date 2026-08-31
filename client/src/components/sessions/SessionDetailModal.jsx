@@ -33,7 +33,7 @@ const SessionDetailModal = ({session, onClose}) => {
           </button>
         </div>
         {/* tab title */}
-        <div className='flex border-b border-slate-100 px-6 bg-slate-50/50'>
+        <div className='flex border-b border-slate-100 px-6 bg-slate-50/50 flex-wrap gap-2'>
           <button onClick={()=> setActiveTab("chat")} className={`py-3 px-4 font-medium text-sm border-b-2 cursor-pointer transition-all ${activeTab === "chat" ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
             Chat Transcript ({session.messages?.length || 0})
           </button>
@@ -41,13 +41,37 @@ const SessionDetailModal = ({session, onClose}) => {
           <button onClick={()=> setActiveTab("participants")} className={`py-3 px-4 font-medium text-sm border-b-2 cursor-pointer transition-all ${activeTab === "participants" ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
             Participants Log ({session.participants?.length || 0})
           </button>
+
+          {session.recording && (
+            <button onClick={()=> setActiveTab("recording")} className={`py-3 px-4 font-medium text-sm border-b-2 cursor-pointer transition-all ${activeTab === "recording" ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+              Recording
+            </button>
+          )}
         </div>
         {/* tab content */}
         <div className='flex-1 p-6 overflow-y-auto min-h-75'>
           {activeTab === 'chat' ? (
             <SessionChatTab messages={session.messages} />
-          ) : (
+          ) : activeTab === 'participants' ? (
             <SessionParticipantsTab participants={session.participants} host={session.host} />
+          ) : (
+            <div className='space-y-4'>
+              <div className='rounded-2xl border border-slate-200 bg-slate-50 p-4'>
+                <p className='text-sm font-medium text-slate-800 mb-2'>{session.recording?.name || 'Meeting recording'}</p>
+                <p className='text-xs text-slate-500'>Recorded on {new Date(session.recording?.createdAt || Date.now()).toLocaleString()}</p>
+              </div>
+
+              {session.recording?.recordingUrl ? (
+                <>
+                  <video controls src={session.recording.recordingUrl} className='w-full rounded-2xl border border-slate-200 bg-black max-h-80 object-contain' />
+                  <a href={session.recording.recordingUrl} download={session.recording.name || 'meeting-recording.webm'} className='inline-flex items-center justify-center rounded-full bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary-hover transition-all'>
+                    Download recording
+                  </a>
+                </>
+              ) : (
+                <p className='text-sm text-slate-500'>No recording attached to this session.</p>
+              )}
+            </div>
           )}
         </div>
       </div>

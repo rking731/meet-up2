@@ -65,7 +65,7 @@ const MeetingRoom = () => {
   },[navigate])
 
   // initialize webRTC
-  const {localStream, remoteUsers, audioEnabled, videoEnabled, toggleAudio, toggleVideo, endMeeting}= useWebRTC(meetingId, userdata, handleMeetingEnded)
+  const {localStream, remoteUsers, audioEnabled, videoEnabled, isRecording, toggleAudio, toggleVideo, startRecording, stopRecording, endMeeting}= useWebRTC(meetingId, userdata, handleMeetingEnded)
 
   // initialize chat
   const {messages, sendMessage, unreadCount, isChatOpen, toggleChat} = useChat(meetingId, userdata)
@@ -109,7 +109,7 @@ const MeetingRoom = () => {
        <ParticipantsList isOpen={isParticipantsOpen} onClose={()=> setIsParticipantsOpen(false)} localUser={userdata} localAudio={audioEnabled} localVideo={videoEnabled} remoteUsers={remoteUsers} meetingHostId={dummyUser.id}  />
        </div>
        {/* bottom control bar */}
-       <ControlBar roomId={meetingId || dummyMeetingDetails.meetingId} audioEnabled={audioEnabled} videoEnabled={videoEnabled} onToggleAudio={toggleAudio} onToggleVideo={toggleVideo} onToggleChat={toggleChat} onToggleParticipants={()=>setIsParticipantsOpen((prev)=> !prev)} isChatOpen={isChatOpen} isParticipantsOpen={isParticipantsOpen} unreadCount={unreadCount} participantCount={1 + remoteUsers.length} isHost={isHost} onLeave={handleLeave} onEndMeeting={handleEndMeeting} />
+       <ControlBar roomId={meetingId || dummyMeetingDetails.meetingId} audioEnabled={audioEnabled} videoEnabled={videoEnabled} isRecording={isRecording} onToggleAudio={toggleAudio} onToggleVideo={toggleVideo} onToggleChat={toggleChat} onToggleParticipants={()=>setIsParticipantsOpen((prev)=> !prev)} isChatOpen={isChatOpen} isParticipantsOpen={isParticipantsOpen} unreadCount={unreadCount} participantCount={1 + remoteUsers.length} isHost={isHost} onLeave={handleLeave} onEndMeeting={handleEndMeeting} onStartRecording={startRecording} onStopRecording={stopRecording} />
 
     </div>
   )

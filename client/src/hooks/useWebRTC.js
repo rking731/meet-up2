@@ -73,9 +73,13 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [remoteUsers, setRemoteUsers] = useState([]); // Array of { socketId, userId, userName, stream, audioEnabled, videoEnabled }
     const [audioEnabled, setAudioEnabled] = useState(false);
     const [videoEnabled, setVideoEnabled] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingUrl, setRecordingUrl] = useState(null);
 
     const peersRef = useRef(new Map()); // socketId -> RTCPeerConnection
     const localStreamRef = useRef(null);
+    const mediaRecorderRef = useRef(null);
+    const recordedChunksRef = useRef([]);
 
     // Initialize local media stream
     const initLocalStream = useCallback(async () => {
@@ -306,6 +310,10 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             isMounted = false;
             sessionStorage.removeItem("meetup-media-session-active");
 
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+                mediaRecorderRef.current.stop();
+            }
+
             // Stop local tracks
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -356,6 +364,75 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         }
     };
 
+    const startRecording = useCallback(() => {
+        if (!localStreamRef.current) {
+            toast.error("Camera/microphone is not ready yet.");
+            return;
+        }
+
+        if (typeof MediaRecorder === "undefined") {
+            toast.error("Recording is not supported on this device.");
+            return;
+        }
+
+        const stream = localStreamRef.current;
+        const mimeType = [
+            "video/webm;codecs=vp9",
+            "video/webm;codecs=h264",
+            "video/webm",
+            "audio/webm",
+        ].find((type) => MediaRecorder.isTypeSupported(type));
+
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        recordedChunksRef.current = [];
+
+        recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                recordedChunksRef.current.push(event.data);
+            }
+        };
+
+        recorder.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, {
+                type: recorder.mimeType || "video/webm",
+            });
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const dataUrl = reader.result;
+                const recordings = JSON.parse(localStorage.getItem("meetup-recordings") || "{}");
+                recordings[roomId] = {
+                    meetingId: roomId,
+                    name: `Meeting Recording - ${new Date().toLocaleString()}`,
+                    createdAt: new Date().toISOString(),
+                    recordingUrl: dataUrl,
+                    type: blob.type || "video/webm",
+                };
+
+                localStorage.setItem("meetup-recordings", JSON.stringify(recordings));
+                setRecordingUrl(dataUrl);
+                toast.success("Meeting recording saved to this session");
+            };
+            reader.readAsDataURL(blob);
+        };
+
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+        setIsRecording(true);
+        toast.success("Recording started");
+    }, [roomId]);
+
+    const stopRecording = useCallback(() => {
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+            return;
+        }
+
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        toast("Recording stopped", { icon: "🛑" });
+    }, []);
+
     // End meeting for everyone (Host action)
     const endMeeting = useCallback(() => {
         if (roomId) {
@@ -368,8 +445,12 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         remoteUsers,
         audioEnabled,
         videoEnabled,
+        isRecording,
+        recordingUrl,
         toggleAudio,
         toggleVideo,
+        startRecording,
+        stopRecording,
         endMeeting,
     };
 };

@@ -58,13 +58,24 @@ const Sessions = () => {
     };
   }, [isLoaded, isSignedIn]);
 
+  const getStoredRecording = (meetingId) => {
+    try {
+      const recordings = JSON.parse(localStorage.getItem("meetup-recordings") || "{}");
+      return recordings[meetingId] || null;
+    } catch (_error) {
+      return null;
+    }
+  };
+
   const openSessionDetails = async (sessionId)=> {
      try {
         const token = await getToken();
         const res = await api.get(`/api/meetings/sessions/${sessionId}`, {
           headers: {Authorization: `Bearer ${token}`},
         })
-        setSelectedSession(res.data.meeting || res.data.meetings || null);
+        const meeting = res.data.meeting || res.data.meetings || null;
+
+        setSelectedSession(meeting ? { ...meeting, recording: getStoredRecording(sessionId) } : null);
      } catch (_error) {
         toast.error("Could not fetch session details");
      }

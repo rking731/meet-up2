@@ -2,7 +2,7 @@ import { CheckIcon, CopyIcon, MessageSquareIcon, MicIcon, MicOff, PhoneOffIcon, 
 import React, { useState } from 'react'
 import toast from 'react-hot-toast'
 
-const ControlBar = ({roomId, audioEnabled, videoEnabled, onToggleAudio, onToggleVideo, onToggleChat, onToggleParticipants, isChatOpen, isParticipantsOpen, unreadCount, participantCount, isHost, onLeave, onEndMeeting}) => {
+const ControlBar = ({roomId, audioEnabled, videoEnabled, isRecording, onToggleAudio, onToggleVideo, onToggleChat, onToggleParticipants, isChatOpen, isParticipantsOpen, unreadCount, participantCount, isHost, onLeave, onEndMeeting, onStartRecording, onStopRecording}) => {
     const [copied, setCopied] = useState(false)
 
     const meetingLink = roomId ? `${window.location.origin}/meeting/${roomId}` : "";
@@ -104,6 +104,11 @@ const ControlBar = ({roomId, audioEnabled, videoEnabled, onToggleAudio, onToggle
                     {participantCount}
                 </span>
             
+         </button>
+        <button onClick={isRecording ? onStopRecording : onStartRecording} className={`p-3.5 rounded-2xl transition-all cursor-pointer border ${
+            isRecording ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-xs" : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 shadow-xs"
+         }`} title={isRecording ? "Stop Recording" : "Start Recording"}>
+            <span className='text-[10px] font-bold uppercase tracking-wide'>Rec</span>
          </button>
         {/* leave / end meeting btn */}
         {isHost ? (
