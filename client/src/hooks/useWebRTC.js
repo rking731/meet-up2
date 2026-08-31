@@ -121,6 +121,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
     const peersRef = useRef(new Map()); // socketId -> RTCPeerConnection
     const localStreamRef = useRef(null);
+    const remoteStreamsRef = useRef(new Map()); // socketId -> MediaStream
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
@@ -189,6 +190,10 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         // Handle incoming remote stream tracks
         peer.ontrack = (event) => {
             const remoteStream = event.streams[0];
+            if (remoteStream) {
+                remoteStreamsRef.current.set(targetSocketId, remoteStream);
+            }
+
             setRemoteUsers((prev) => {
                 const existingIndex = prev.findIndex((u) => u.socketId === targetSocketId);
                 if (existingIndex > -1) {
@@ -334,6 +339,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
                     peer.close();
                     peersRef.current.delete(socketId);
                 }
+                remoteStreamsRef.current.delete(socketId);
                 setRemoteUsers((prev) => prev.filter((u) => u.socketId !== socketId));
             });
 
@@ -418,7 +424,23 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             return;
         }
 
-        const stream = localStreamRef.current;
+        const combinedStream = new MediaStream();
+
+        localStreamRef.current.getTracks().forEach((track) => {
+            combinedStream.addTrack(track);
+        });
+
+        remoteStreamsRef.current.forEach((remoteStream) => {
+            remoteStream.getTracks().forEach((track) => {
+                combinedStream.addTrack(track);
+            });
+        });
+
+        if (!combinedStream.getTracks().length) {
+            toast.error("No meeting media available to record.");
+            return;
+        }
+
         const mimeType = [
             "video/webm;codecs=vp9",
             "video/webm;codecs=h264",
@@ -426,7 +448,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
             "audio/webm",
         ].find((type) => MediaRecorder.isTypeSupported(type));
 
-        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        const recorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : undefined);
         recordedChunksRef.current = [];
 
         recorder.ondataavailable = (event) => {
@@ -464,7 +486,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         recorder.start();
         mediaRecorderRef.current = recorder;
         setIsRecording(true);
-        toast.success("Recording started");
+        toast.success("Recording started for the room");
     }, [roomId]);
 
     const stopRecording = useCallback(() => {
