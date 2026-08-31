@@ -10,6 +10,64 @@ const ICE_SERVERS = {
     ],
 };
 
+const VIDEO_CONSTRAINTS = {
+    facingMode: "user",
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { ideal: 24 },
+};
+
+const AUDIO_CONSTRAINT_PROFILES = [
+    {
+        echoCancellation: true,
+        noiseSuppression: "high",
+        autoGainControl: true,
+        suppressLocalAudioPlayback: true,
+        channelCount: 1,
+    },
+    {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        suppressLocalAudioPlayback: true,
+        channelCount: 1,
+    },
+    {
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+        suppressLocalAudioPlayback: true,
+        channelCount: 1,
+    },
+    {
+        echoCancellation: true,
+        suppressLocalAudioPlayback: true,
+        channelCount: 1,
+    },
+    {
+        echoCancellation: true,
+    },
+];
+
+const requestMediaWithFallback = async (withVideo = true) => {
+    const profiles = withVideo
+        ? AUDIO_CONSTRAINT_PROFILES.map((audio) => ({ video: VIDEO_CONSTRAINTS, audio }))
+        : AUDIO_CONSTRAINT_PROFILES.map((audio) => ({ audio }));
+
+    let lastError = null;
+
+    for (const constraints of profiles) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            return stream;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error("Unable to access microphone/camera");
+};
+
 export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     const [localStream, setLocalStream] = useState(null);
     const [remoteUsers, setRemoteUsers] = useState([]); // Array of { socketId, userId, userName, stream, audioEnabled, videoEnabled }
@@ -22,21 +80,7 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
     // Initialize local media stream
     const initLocalStream = useCallback(async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: "user",
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    frameRate: { ideal: 24 },
-                },
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    suppressLocalAudioPlayback: true,
-                    channelCount: 1,
-                },
-            });
+            const stream = await requestMediaWithFallback(true);
 
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) {
@@ -49,17 +93,9 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
         } catch (error) {
             toast.error("Could not access camera/microphone");
             console.error("Media devices access error:", error);
-            // Fallback: try audio only
+
             try {
-                const audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        suppressLocalAudioPlayback: true,
-                        channelCount: 1,
-                    },
-                });
+                const audioStream = await requestMediaWithFallback(false);
 
                 const fallbackAudioTrack = audioStream.getAudioTracks()[0];
                 if (fallbackAudioTrack) {
