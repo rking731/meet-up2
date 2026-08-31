@@ -20,21 +20,21 @@ const VIDEO_CONSTRAINTS = {
 const AUDIO_CONSTRAINT_PROFILES = [
     {
         echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+        suppressLocalAudioPlayback: true,
+        channelCount: 1,
+    },
+    {
+        echoCancellation: true,
         noiseSuppression: "high",
-        autoGainControl: true,
+        autoGainControl: false,
         suppressLocalAudioPlayback: true,
         channelCount: 1,
     },
     {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
-        suppressLocalAudioPlayback: true,
-        channelCount: 1,
-    },
-    {
-        echoCancellation: true,
-        noiseSuppression: false,
         autoGainControl: false,
         suppressLocalAudioPlayback: true,
         channelCount: 1,
@@ -84,6 +84,16 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
             const audioTrack = stream.getAudioTracks()[0];
             if (audioTrack) {
+                try {
+                    await audioTrack.applyConstraints({
+                        echoCancellation: true,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        channelCount: 1,
+                    });
+                } catch (error) {
+                    console.warn("Could not apply audio constraints for better mic volume:", error);
+                }
                 audioTrack.enabled = false;
             }
 
@@ -99,6 +109,16 @@ export const useWebRTC = (roomId, user, onMeetingEnded, enabled = true) => {
 
                 const fallbackAudioTrack = audioStream.getAudioTracks()[0];
                 if (fallbackAudioTrack) {
+                    try {
+                        await fallbackAudioTrack.applyConstraints({
+                            echoCancellation: true,
+                            noiseSuppression: false,
+                            autoGainControl: false,
+                            channelCount: 1,
+                        });
+                    } catch (error) {
+                        console.warn("Could not apply fallback audio constraints:", error);
+                    }
                     fallbackAudioTrack.enabled = false;
                 }
 
